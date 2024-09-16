@@ -82,7 +82,7 @@ class MarigoldTrainer:
         self.accumulation_steps: int = accumulation_steps
 
         # Adapt input layers
-        if 8 != self.model.unet.config["in_channels"]:
+        if 12 != self.model.unet.config["in_channels"]:
             self._replace_unet_conv_in()
 
         # Encode empty text prompt
@@ -167,7 +167,7 @@ class MarigoldTrainer:
         self.global_seed_sequence: List = []  # consistent global seed sequence, used to seed random generator, to ensure consistency when resuming
 
     def _replace_unet_conv_in(self):
-        # replace the first layer to accept 8 in_channels
+        # replace the first layer to accept 12 in_channels
         _weight = self.model.unet.conv_in.weight.clone()  # [320, 4, 3, 3]
         _bias = self.model.unet.conv_in.bias.clone()  # [320]
         _weight = _weight.repeat((1, 2, 1, 1))  # Keep selected channel(s)
@@ -176,14 +176,14 @@ class MarigoldTrainer:
         # new conv_in channel
         _n_convin_out_channel = self.model.unet.conv_in.out_channels
         _new_conv_in = Conv2d(
-            8, _n_convin_out_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)
+            12, _n_convin_out_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)
         )
         _new_conv_in.weight = Parameter(_weight)
         _new_conv_in.bias = Parameter(_bias)
         self.model.unet.conv_in = _new_conv_in
         logging.info("Unet conv_in layer is replaced")
         # replace config
-        self.model.unet.config["in_channels"] = 8
+        self.model.unet.config["in_channels"] = 12
         logging.info("Unet config is updated")
         return
 
@@ -207,6 +207,7 @@ class MarigoldTrainer:
             logging.debug(f"epoch: {self.epoch}")
 
             # Skip previous batches when resume
+            # TODO: train_loader adding another key containing info
             for batch in skip_first_batches(self.train_loader, self.n_batch_in_epoch):
                 self.model.unet.train()
 
@@ -235,7 +236,7 @@ class MarigoldTrainer:
                     raise NotImplementedError
 
                 batch_size = rgb.shape[0]
-
+                # RGB latent - Depth latent - Additional latent
                 with torch.no_grad():
                     # Encode image
                     rgb_latent = self.model.encode_rgb(rgb)  # [B, 4, h, w]
@@ -243,7 +244,10 @@ class MarigoldTrainer:
                     gt_depth_latent = self.encode_depth(
                         depth_gt_for_latent
                     )  # [B, 4, h, w]
-
+                    # TODO add encoded latent for additional inputs (RGB)
+                    gross_latent = self.encode_depth(
+                        gross_depth_for_latent
+                    )
                 # Sample a random timestep for each image
                 timesteps = torch.randint(
                     0,
@@ -267,6 +271,8 @@ class MarigoldTrainer:
                         device=device,
                     )
                 else:
+                    # Noise shape is consistent with gt_depth_latent
+                    # TODO add noise for additional inputs (RGB), concate along channel dim
                     noise = torch.randn(
                         gt_depth_latent.shape,
                         device=device,
@@ -285,10 +291,11 @@ class MarigoldTrainer:
 
                 # Concat rgb and depth latents
                 cat_latents = torch.cat(
-                    [rgb_latent, noisy_latents], dim=1
+                    [rgb_latent, gross_latent, noisy_latents], dim=1
                 )  # [B, 8, h, w]
                 cat_latents = cat_latents.float()
-
+                
+                # Input: latent, Output: prediction of noise
                 # Predict the noise residual
                 model_pred = self.model.unet(
                     cat_latents, timesteps, text_embed
