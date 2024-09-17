@@ -63,17 +63,17 @@ if "__main__" == __name__:
     parser.add_argument(
         "--config",
         type=str,
-        default="/home/pj/Marigold/config/train_marigold.yaml",
+        default="config/train_marigold.yaml",
         help="Path to config file.",
     )
     parser.add_argument(
         "--resume_run",
         action="store",
-        default='output/train_marigold/checkpoint/latest',
+        default=None,
         help="Path of checkpoint to be resumed. If given, will ignore --config, and checkpoint in the config",
     )
     parser.add_argument(
-        "--output_dir", type=str, default=None, help="directory to save checkpoints"
+        "--output_dir", type=str, default='tmp2out', help="directory to save checkpoints"
     )
     parser.add_argument("--no_cuda", action="store_true", help="Do not use cuda.")
     parser.add_argument(

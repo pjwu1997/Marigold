@@ -49,7 +49,7 @@ if "__main__" == __name__:
     parser.add_argument(
         "--checkpoint",
         type=str,
-        default="prs-eth/marigold-v1-0",
+        default='/home/pj/Marigold/marigold-depth-v1-0',
         help="Checkpoint path or hub name.",
     )
 
@@ -57,18 +57,18 @@ if "__main__" == __name__:
     parser.add_argument(
         "--dataset_config",
         type=str,
-        required=True,
+        default='/home/pj/Marigold/config/dataset/dataset_inference.yaml',
         help="Path to config file of evaluation dataset.",
     )
     parser.add_argument(
         "--base_data_dir",
         type=str,
-        required=True,
+        default='/home/pj/122_new',
         help="Path to base data directory.",
     )
 
     parser.add_argument(
-        "--output_dir", type=str, required=True, help="Output directory."
+        "--output_dir", type=str, default='/home/pj/inference', help="Output directory."
     )
 
     # inference setting
@@ -225,7 +225,14 @@ if "__main__" == __name__:
             # Read input image
             rgb_int = batch["rgb_int"].squeeze().numpy().astype(np.uint8)  # [3, H, W]
             rgb_int = np.moveaxis(rgb_int, 0, -1)  # [H, W, 3]
-            input_image = Image.fromarray(rgb_int)
+            if 'gloss_raw' in batch:
+                gloss = batch["gloss_raw"][0].numpy().astype(np.uint8)  # [1, H, W]
+                gloss = np.moveaxis(gloss, 0, -1)
+                rgb_int = np.concatenate([rgb_int, gloss], axis=-1)
+
+            # input_image = Image.fromarray(rgb_int)
+            input_image = np.moveaxis(rgb_int, -1, 0)
+            input_image = torch.tensor(np.expand_dims(input_image, 0))
 
             # Predict depth
             pipe_out = pipe(

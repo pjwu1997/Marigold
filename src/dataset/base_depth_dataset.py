@@ -137,7 +137,11 @@ class BaseDepthDataset(Dataset):
 
         # RGB data
         rasters.update(self._load_rgb_data(rgb_rel_path=rgb_rel_path))
-
+        if self.has_gloss_depth:
+            gloss_data = self._load_gloss_data(
+                gloss_path=gloss_path
+            )
+            rasters.update(gloss_data)
         # Depth data
         if DatasetMode.RGB_ONLY != self.mode:
             # load data
@@ -145,11 +149,6 @@ class BaseDepthDataset(Dataset):
                 depth_rel_path=depth_rel_path, filled_rel_path=filled_rel_path
             )
             rasters.update(depth_data)
-            if self.has_gloss_depth:
-                gloss_data = self._load_gloss_data(
-                    gloss_path=gloss_path
-                )
-                rasters.update(gloss_data)
             # valid mask
             rasters["valid_mask_raw"] = self._get_valid_mask(
                 rasters["depth_raw_linear"]
@@ -207,11 +206,11 @@ class BaseDepthDataset(Dataset):
         rgb_rel_path = filename_line[0]
         
         gloss_path, depth_rel_path, filled_rel_path = None, None, None
+        if self.has_gloss_depth:
+            gloss_path = filename_line[1]
+            depth_rel_path = filename_line[2]
+            return rgb_rel_path, depth_rel_path, filled_rel_path, gloss_path
         if DatasetMode.RGB_ONLY != self.mode:
-            if self.has_gloss_depth:
-                gloss_path = filename_line[1]
-                depth_rel_path = filename_line[2]
-                return rgb_rel_path, depth_rel_path, filled_rel_path, gloss_path
             depth_rel_path = filename_line[1]
             if self.has_filled_depth:
                 filled_rel_path = filename_line[2]
