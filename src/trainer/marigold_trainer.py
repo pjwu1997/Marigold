@@ -536,6 +536,9 @@ class MarigoldTrainer:
             assert 1 == data_loader.batch_size
             # Read input image
             rgb_int = batch["rgb_int"]  # [B, 3, H, W]
+            if "gloss_raw" in batch:
+                gloss_raw = batch['gloss_raw']
+                rgb_int = torch.cat([rgb_int, batch['gloss_raw']], dim=1)
             # GT depth
             depth_raw_ts = batch["depth_raw_linear"].squeeze()
             depth_raw = depth_raw_ts.numpy()

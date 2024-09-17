@@ -69,7 +69,7 @@ if "__main__" == __name__:
     parser.add_argument(
         "--resume_run",
         action="store",
-        default=None,
+        default='output/train_marigold/checkpoint/latest',
         help="Path of checkpoint to be resumed. If given, will ignore --config, and checkpoint in the config",
     )
     parser.add_argument(

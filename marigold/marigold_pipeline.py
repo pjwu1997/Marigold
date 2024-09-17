@@ -228,9 +228,9 @@ class MarigoldPipeline(DiffusionPipeline):
         else:
             raise TypeError(f"Unknown input type: {type(input_image) = }")
         input_size = rgb.shape
-        assert (
-            4 == rgb.dim() and 3 == input_size[-3]
-        ), f"Wrong input shape {input_size}, expected [1, rgb, H, W]"
+        # assert (
+        #     4 == rgb.dim() and 3 == input_size[-3]
+        # ), f"Wrong input shape {input_size}, expected [1, rgb, H, W]"
 
         # Resize image
         if processing_res > 0:
@@ -279,7 +279,7 @@ class MarigoldPipeline(DiffusionPipeline):
                 generator=generator,
             )
             depth_pred_ls.append(depth_pred_raw.detach())
-        depth_preds = torch.concat(depth_pred_ls, dim=0)
+        depth_preds = torch.cat(depth_pred_ls, dim=0)
         torch.cuda.empty_cache()  # clear vram cache for ensembling
 
         # ----------------- Test-time ensembling -----------------
@@ -365,6 +365,15 @@ class MarigoldPipeline(DiffusionPipeline):
         )
         text_input_ids = text_inputs.input_ids.to(self.text_encoder.device)
         self.empty_text_embed = self.text_encoder(text_input_ids)[0].to(self.dtype)
+    
+    @staticmethod
+    def stack_depth_images(depth_in):
+        if 4 == len(depth_in.shape):
+            stacked = depth_in.repeat(1, 3, 1, 1)
+        elif 3 == len(depth_in.shape):
+            stacked = depth_in.unsqueeze(1)
+            stacked = depth_in.repeat(1, 3, 1, 1)
+        return stacked
 
     @torch.no_grad()
     def single_infer(
@@ -397,15 +406,29 @@ class MarigoldPipeline(DiffusionPipeline):
         timesteps = self.scheduler.timesteps  # [T]
 
         # Encode image
-        rgb_latent = self.encode_rgb(rgb_in)
+        if rgb_in.shape[1] > 3:
+            gloss_in = rgb_in[:, 3:, :, :]
+            rgb_in = rgb_in[:, :3, :, :]
+            rgb_latent = self.encode_rgb(rgb_in)
+            depth_latent = torch.randn(
+                rgb_latent.shape,
+                device=device,
+                dtype=self.dtype,
+                generator=generator,
+            )  # [B, 4, h, w]
+            gloss_latent = self.encode_gloss(gloss_in)
+            rgb_latent = torch.cat([rgb_latent, gloss_latent], dim=1)
+            
 
-        # Initial depth map (noise)
-        depth_latent = torch.randn(
-            rgb_latent.shape,
-            device=device,
-            dtype=self.dtype,
-            generator=generator,
-        )  # [B, 4, h, w]
+        else:
+            rgb_latent = self.encode_rgb(rgb_in)
+            # Initial depth map (noise)
+            depth_latent = torch.randn(
+                rgb_latent.shape,
+                device=device,
+                dtype=self.dtype,
+                generator=generator,
+            )  # [B, 4, h, w]
 
         # Batched empty text embedding
         if self.empty_text_embed is None:
@@ -467,6 +490,13 @@ class MarigoldPipeline(DiffusionPipeline):
         # scale latent
         rgb_latent = mean * self.rgb_latent_scale_factor
         return rgb_latent
+    
+    def encode_gloss(self, gloss_in):
+        # stack depth into 3-channel
+        stacked = self.stack_depth_images(gloss_in)
+        # encode using VAE encoder
+        gloss_latent = self.encode_rgb(stacked)
+        return gloss_latent
 
     def decode_depth(self, depth_latent: torch.Tensor) -> torch.Tensor:
         """
