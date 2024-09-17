@@ -20,6 +20,12 @@ def get_depth_normalizer(cfg_normalizer):
             min_max_quantile=cfg_normalizer.min_max_quantile,
             clip=cfg_normalizer.clip,
         )
+    
+    elif "Normalizer255" == cfg_normalizer.type:
+        depth_transform = Normalizer255(
+            norm_min=cfg_normalizer.norm_min,
+            norm_max=cfg_normalizer.norm_max,
+        )
     else:
         raise NotImplementedError
     return depth_transform
@@ -97,6 +103,32 @@ class ScaleShiftDepthNormalizer(DepthNormalizerBase):
         # scale to [0, 1]
         depth_linear = (depth_norm - self.norm_min) / self.norm_range
         return depth_linear
+
+    def denormalize(self, depth_norm, **kwargs):
+        logging.warning(f"{self.__class__} is not revertible without GT")
+        return self.scale_back(depth_norm=depth_norm)
+
+class Normalizer255(DepthNormalizerBase):
+    """
+    Use near and far plane to linearly normalize depth,
+        i.e. d' = d * s + t,
+        where near plane is mapped to `norm_min`, and far plane is mapped to `norm_max`
+    Near and far planes are determined by taking quantile values.
+    """
+
+
+    def __init__(
+        self, norm_min=0, norm_max=1.0
+    ) -> None:
+        self.norm_min = norm_min
+        self.norm_max = norm_max
+
+    def __call__(self, depth_linear, valid_mask=None):
+        return depth_linear / 255.0
+
+    def scale_back(self, depth_norm):
+        # scale to [0, 1]
+        return depth_norm * 255.0
 
     def denormalize(self, depth_norm, **kwargs):
         logging.warning(f"{self.__class__} is not revertible without GT")

@@ -73,6 +73,7 @@ class BaseDepthDataset(Dataset):
         resize_to_hw=None,
         move_invalid_to_far_plane: bool = True,
         rgb_transform=lambda x: x / 255.0 * 2 - 1,  #  [0, 255] -> [-1, 1],
+        has_gloss_depth: bool = False,
         **kwargs,
     ) -> None:
         super().__init__()
@@ -85,6 +86,7 @@ class BaseDepthDataset(Dataset):
         ), f"Dataset does not exist at: {self.dataset_dir}"
         self.disp_name = disp_name
         self.has_filled_depth = has_filled_depth
+        self.has_gloss_depth = has_gloss_depth
         self.name_mode: DepthFileNameMode = name_mode
         self.min_depth = min_depth
         self.max_depth = max_depth
@@ -98,9 +100,12 @@ class BaseDepthDataset(Dataset):
 
         # Load filenames
         with open(self.filename_ls_path, "r") as f:
+            # self.filenames = [
+            #     s.split() for s in f.readlines()
+            # ]  # [['rgb.png', 'depth.tif'], [], ...]
             self.filenames = [
-                s.split() for s in f.readlines()
-            ]  # [['rgb.png', 'depth.tif'], [], ...]
+                s.replace("\n", "").split(',') for s in f.readlines()
+            ] 
 
         # Tar dataset
         self.tar_obj = None
@@ -123,7 +128,10 @@ class BaseDepthDataset(Dataset):
         return outputs
 
     def _get_data_item(self, index):
-        rgb_rel_path, depth_rel_path, filled_rel_path = self._get_data_path(index=index)
+        if self.has_gloss_depth:
+            rgb_rel_path, depth_rel_path, filled_rel_path, gloss_path = self._get_data_path(index=index)
+        else:
+            rgb_rel_path, depth_rel_path, filled_rel_path = self._get_data_path(index=index)
 
         rasters = {}
 
@@ -137,6 +145,11 @@ class BaseDepthDataset(Dataset):
                 depth_rel_path=depth_rel_path, filled_rel_path=filled_rel_path
             )
             rasters.update(depth_data)
+            if self.has_gloss_depth:
+                gloss_data = self._load_gloss_data(
+                    gloss_path=gloss_path
+                )
+                rasters.update(gloss_data)
             # valid mask
             rasters["valid_mask_raw"] = self._get_valid_mask(
                 rasters["depth_raw_linear"]
@@ -159,6 +172,17 @@ class BaseDepthDataset(Dataset):
             "rgb_norm": torch.from_numpy(rgb_norm).float(),
         }
         return outputs
+    
+    def _load_gloss_data(self, gloss_path):
+        # Read gloss data
+        outputs = {}
+        gloss_raw = self._read_depth_file(gloss_path).squeeze()
+        gloss_norm = gloss_raw / 255.0 * 2.0 - 1.0
+        gloss_raw_linear = torch.from_numpy(gloss_raw).float().unsqueeze(0)  # [1, H, W]
+        gloss_norm = torch.from_numpy(gloss_norm).float().unsqueeze(0)  # [1, H, W]
+        outputs["gloss_raw"] = gloss_raw_linear.clone()
+        outputs["gloss_norm"] = gloss_norm.clone()
+        return outputs
 
     def _load_depth_data(self, depth_rel_path, filled_rel_path):
         # Read depth data
@@ -175,15 +199,19 @@ class BaseDepthDataset(Dataset):
             outputs["depth_filled_linear"] = depth_raw_linear.clone()
 
         return outputs
-
+    # TODO
     def _get_data_path(self, index):
         filename_line = self.filenames[index]
 
         # Get data path
         rgb_rel_path = filename_line[0]
-
-        depth_rel_path, filled_rel_path = None, None
+        
+        gloss_path, depth_rel_path, filled_rel_path = None, None, None
         if DatasetMode.RGB_ONLY != self.mode:
+            if self.has_gloss_depth:
+                gloss_path = filename_line[1]
+                depth_rel_path = filename_line[2]
+                return rgb_rel_path, depth_rel_path, filled_rel_path, gloss_path
             depth_rel_path = filename_line[1]
             if self.has_filled_depth:
                 filled_rel_path = filename_line[2]

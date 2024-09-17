@@ -1,0 +1,4 @@
+name: custom
+disp_name: custom_train
+dir: /home/pj/marigold_dataset
+filenames: /home/pj/marigold_dataset/marigold.csv

@@ -1,9 +1,6 @@
 dataset:
   vis:
-  - name: hypersim
-    disp_name: hypersim_vis
-    dir: hypersim/hypersim_processed_val.tar
-    filenames: data_split/hypersim/selected_vis_sample.txt
-    resize_to_hw:
-    - 480
-    - 640
+  - name: custom
+    disp_name: custom_train
+    dir: /home/pj/marigold_dataset
+    filenames: /home/pj/marigold_dataset/marigold.csv

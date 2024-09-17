@@ -80,10 +80,18 @@ class MarigoldTrainer:
         self.val_loaders: List[DataLoader] = val_dataloaders
         self.vis_loaders: List[DataLoader] = vis_dataloaders
         self.accumulation_steps: int = accumulation_steps
+        if self.cfg.datatype == 'gloss':
+            self.datatype = 'gloss'
+        else:
+            self.datatype = 'normal'
 
         # Adapt input layers
-        if 12 != self.model.unet.config["in_channels"]:
-            self._replace_unet_conv_in()
+        if self.datatype == 'gloss':
+            if 12 != self.model.unet.config["in_channels"]:
+                self._replace_unet_conv_in()
+        else:
+            if 8 != self.model.unet.config["in_channels"]:
+                self._replace_unet_conv_in()
 
         # Encode empty text prompt
         self.model.encode_empty_text()
@@ -167,17 +175,27 @@ class MarigoldTrainer:
         self.global_seed_sequence: List = []  # consistent global seed sequence, used to seed random generator, to ensure consistency when resuming
 
     def _replace_unet_conv_in(self):
-        # replace the first layer to accept 12 in_channels
+        # replace the first layer to accept 8/12 in_channels
         _weight = self.model.unet.conv_in.weight.clone()  # [320, 4, 3, 3]
         _bias = self.model.unet.conv_in.bias.clone()  # [320]
-        _weight = _weight.repeat((1, 2, 1, 1))  # Keep selected channel(s)
-        # half the activation magnitude
-        _weight *= 0.5
-        # new conv_in channel
-        _n_convin_out_channel = self.model.unet.conv_in.out_channels
-        _new_conv_in = Conv2d(
-            12, _n_convin_out_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)
-        )
+        if self.datatype == 'gloss':
+            _weight = _weight.repeat((1, 3, 1, 1))  # Keep selected channel(s)
+            # half the activation magnitude
+            _weight *= 0.5
+            # new conv_in channel
+            _n_convin_out_channel = self.model.unet.conv_in.out_channels
+            _new_conv_in = Conv2d(
+                12, _n_convin_out_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)
+            )
+        else:
+            _weight = _weight.repeat((1, 2, 1, 1))  # Keep selected channel(s)
+            # half the activation magnitude
+            _weight *= 0.5
+            # new conv_in channel
+            _n_convin_out_channel = self.model.unet.conv_in.out_channels
+            _new_conv_in = Conv2d(
+                8, _n_convin_out_channel, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)
+            )
         _new_conv_in.weight = Parameter(_weight)
         _new_conv_in.bias = Parameter(_bias)
         self.model.unet.conv_in = _new_conv_in
@@ -224,6 +242,8 @@ class MarigoldTrainer:
                 # Get data
                 rgb = batch["rgb_norm"].to(device)
                 depth_gt_for_latent = batch[self.gt_depth_type].to(device)
+                if "gloss_norm" in batch:
+                    gloss = batch["gloss_norm"].to(device)
 
                 if self.gt_mask_type is not None:
                     valid_mask_for_latent = batch[self.gt_mask_type].to(device)
@@ -245,8 +265,8 @@ class MarigoldTrainer:
                         depth_gt_for_latent
                     )  # [B, 4, h, w]
                     # TODO add encoded latent for additional inputs (RGB)
-                    gross_latent = self.encode_depth(
-                        gross_depth_for_latent
+                    gloss_latent = self.encode_depth(
+                        gloss
                     )
                 # Sample a random timestep for each image
                 timesteps = torch.randint(
@@ -291,10 +311,11 @@ class MarigoldTrainer:
 
                 # Concat rgb and depth latents
                 cat_latents = torch.cat(
-                    [rgb_latent, gross_latent, noisy_latents], dim=1
+                    [rgb_latent, gloss_latent, noisy_latents], dim=1
                 )  # [B, 8, h, w]
                 cat_latents = cat_latents.float()
-                
+                if torch.isnan(cat_latents).any():
+                    raise ValueError("latents contains NaN")
                 # Input: latent, Output: prediction of noise
                 # Predict the noise residual
                 model_pred = self.model.unet(

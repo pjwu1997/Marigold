@@ -63,7 +63,7 @@ if "__main__" == __name__:
     parser.add_argument(
         "--config",
         type=str,
-        default="config/train_marigold.yaml",
+        default="/home/pj/Marigold/config/train_marigold.yaml",
         help="Path to config file.",
     )
     parser.add_argument(
@@ -89,12 +89,12 @@ if "__main__" == __name__:
         help="On Slurm cluster, do not copy data to local scratch",
     )
     parser.add_argument(
-        "--base_data_dir", type=str, default=None, help="directory of training data"
+        "--base_data_dir", type=str, default='/home/pj/marigold_dataset', help="directory of training data"
     )
     parser.add_argument(
         "--base_ckpt_dir",
         type=str,
-        default=None,
+        default='/home/pj/Marigold',
         help="directory of pretrained checkpoint",
     )
     parser.add_argument(
